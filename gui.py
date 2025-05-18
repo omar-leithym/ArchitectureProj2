@@ -1,4 +1,6 @@
 from tkinter import *
+from tkinter import filedialog
+import backend as backend
 
 # Initialize the main application window
 root = Tk()
@@ -11,8 +13,27 @@ titleLabel = Label(root, text="Tomasulo Simulator", font=("Helvetica", 16, "bold
 titleLabel.grid(row=0, column=0, columnspan=3, pady=(10, 20), sticky="w", padx=(20, 0))
 
 # Label for syntax instructions
-syntaxText = """This is a step-by-step simulator that stimulates the instructions using tomasulo's algorithm without speculation. \n
-The supported instructions are: LOAD, 
+syntaxText = """This is a step-by-step simulator that simulates the instructions using Tomasulo's algorithm without speculation.
+
+The supported instructions are:
+1. Load/Store:
+   - LOAD rA, offset(rB)
+   - STORE rA, offset(rB)
+   
+2. Conditional Branch:
+   - BEQ rA, rB, offset
+   
+3. Call/Return:
+   - CALL label
+   - RET
+   
+4. Arithmetic and Logic:
+   - ADD rA, rB, rC
+   - SUB rA, rB, rC
+   - NOR rA, rB, rC
+   - MUL rA, rB, rC
+
+Registers: r0 to r7 (r0 is always 0)
 """
 
 syntaxLabel = Label(root, text=syntaxText, font=("Helvetica", 10), justify="left", anchor="nw", bg="#f0f0f0", wraplength=300)
@@ -74,9 +95,57 @@ increment_button.pack(side="left")
 decrement_button = Button(pc_frame, text="↓", font=("Helvetica", 10), command=decrement_pc, width=2)
 decrement_button.pack(side="left")
 
+# Frame to hold the output Text box
+output_frame = Frame(root)
+output_frame.grid(row=4, column=0, columnspan=3, padx=(20, 20), pady=(10, 20), sticky="nsew")
+
+# Label for Output Text box
+outputLabel = Label(output_frame, text="Simulation Output", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
+outputLabel.pack(anchor="w")
+
+# Output Text box
+outputBox = Text(output_frame, height=15, width=80, font=("Courier", 10), wrap="word")
+outputBox.pack(side="left", fill="both", expand=True)
+outputScrollbar = Scrollbar(output_frame, command=outputBox.yview)
+outputScrollbar.pack(side="right", fill="y")
+outputBox.config(yscrollcommand=outputScrollbar.set)
+
+# Configure row weight for output frame
 root.grid_rowconfigure(1, weight=1)
 root.grid_columnconfigure(1, weight=1)
 root.grid_columnconfigure(2, weight=1)
+root.grid_rowconfigure(4, weight=2)
+
+# Add this to your frontend file after the stop_simulation function
+
+# Function to execute a single step
+def next_step():
+    # If this is the first time clicking Next, start the simulation in step mode
+    if not hasattr(next_step, "simulation_started"):
+        next_step.simulation_started = True
+        
+        # Clear the output area
+        outputBox.delete(1.0, END)
+        
+        # Get the instructions and memory text
+        instructions_text = instructionsBox.get(1.0, END)
+        memory_text = memoryBox.get(1.0, END)
+        
+        # Get the starting PC value
+        starting_pc = pc_value.get()
+        
+        # Define a function to output to the GUI
+        def output_to_gui(text):
+            outputBox.insert(END, text + "\n")
+            outputBox.see(END)  # Scroll to the end
+            root.update()  # Update the GUI
+        
+        # Call the main function from the backend with single_step=True
+        backend.main(instructions_text, memory_text, output_to_gui, starting_pc, single_step=True)
+    else:
+        # Execute the next instruction
+        backend.execute_single_step()
+
 
 def load_instructions_file():
     file_path = filedialog.askopenfilename(title="Select Instructions File", filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
@@ -93,6 +162,31 @@ def load_memory_file():
             memoryBox.delete(1.0, END)  # Clear existing content
             memoryBox.insert(END, file.read())  # Insert file content
 
+# Function to run the simulation
+def simulate():
+    # Clear the output area
+    outputBox.delete(1.0, END)
+    
+    # Get the instructions and memory text
+    instructions_text = instructionsBox.get(1.0, END)
+    memory_text = memoryBox.get(1.0, END)
+    
+    # Get the starting PC value
+    starting_pc = pc_value.get()
+    
+    # Define a function to output to the GUI
+    def output_to_gui(text):
+        outputBox.insert(END, text + "\n")
+        outputBox.see(END)  # Scroll to the end
+        root.update()  # Update the GUI
+    
+    # Call the main function from the backend
+    backend.main(instructions_text, memory_text, output_to_gui, starting_pc)
+
+# Function to stop the simulation
+def stop_simulation():
+    backend.stop_simulation_func()
+
 # File selection buttons for Instructions and Memory
 chooseInstructionsButton = Button(root, text="Choose Instructions File", font=("Helvetica", 10), command=load_instructions_file, bg="#666666", fg="white")
 chooseInstructionsButton.grid(row=2, column=1, pady=(10, 0), sticky="w", padx=(20, 0))
@@ -100,4 +194,18 @@ chooseInstructionsButton.grid(row=2, column=1, pady=(10, 0), sticky="w", padx=(2
 chooseMemoryButton = Button(root, text="Choose Memory File", font=("Helvetica", 10), command=load_memory_file, bg="#666666", fg="white")
 chooseMemoryButton.grid(row=2, column=2, pady=(10, 0), sticky="w", padx=(20, 0))
 
-root.mainloop()
+# Button to run the simulation
+simulateButton = Button(root, text="Run Simulation", font=("Helvetica", 12), command=simulate, bg="#666666", fg="white")
+simulateButton.grid(row=3, column=0, pady=(10, 20), sticky="w", padx=(20, 0))
+
+# Button to stop the simulation
+stopButton = Button(root, text="Stop Simulation", font=("Helvetica", 12), command=stop_simulation, bg="#FF6666", fg="white")
+stopButton.grid(row=3, column=1, pady=(10, 20), sticky="w", padx=(20, 0))
+
+# Button to execute the next instruction
+nextButton = Button(root, text="Next Step", font=("Helvetica", 12), command=next_step, bg="#4CAF50", fg="white")
+nextButton.grid(row=3, column=2, pady=(10, 20), sticky="w", padx=(20, 0))
+
+# Main loop
+if __name__ == "__main__":
+    root.mainloop()
