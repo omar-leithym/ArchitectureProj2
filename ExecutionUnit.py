@@ -74,7 +74,7 @@ class ExecutionUnit:
 
                 for instr in list(self.executing_instructions):
                     if self.current_cycle >= instr['exec_end']:
-                        instr['write_cycle'] = self.current_cycle
+                        instr['write_cycle'] = self.current_cycle + 1
                         self.completed_instructions.append(instr)
                         self.executing_instructions.remove(instr)
 
