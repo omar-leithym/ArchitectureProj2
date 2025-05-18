@@ -19,6 +19,8 @@ class ExecutionUnit:
 
         #cycle counter
         self.current_cycle =  0
+        #branch busy flag
+        self.branch_busy = False 
 
     def issue_instruction(self, instruction, reg_manager):
         op = instruction['op'].upper()
@@ -47,20 +49,34 @@ class ExecutionUnit:
             self.waiting_to_execute_instructions.append(instr_record)
             self.functional_units[fu]['busy'] = True
             self.functional_units[fu]['current_instruction'] = instr_record
+
+            if fu in ('BEQ', 'CALL_RET'):
+                self.branch_busy = True
             return True
         return False
     
     def execute_process(self, reg_manager):
         self.current_cycle += 1
 
+        branch_executing = any(
+            instr['fu_type'] in ('BEQ', 'CALL_RET') and 
+            instr['exec_start'] is not None and 
+            self.current_cycle <= instr['exec_end']
+            for instr in self.executing_instructions
+        )
+
+        if not branch_executing:
+            self.branch_busy = False
+
+
         for instr in list(self.issue_instruction):
             op = instr['instruction']['op'].upper()
 
-            #Check if operands are ready
+            # Check if operands are ready AND no branch is busy
             operands_ready = all(reg_manager.is_ready(reg)
-                                for reg in instr['instruction'].get('src_regs', []))
+                               for reg in instr['instruction'].get('src_regs', []))
             
-            if operands_ready and instr['exec_start'] is None:
+            if operands_ready and not self.branch_busy and instr['exec_start'] is None:
                 fu = self._get_functional_unit_type(op)
                 cycles = self.functional_units[fu]['cycles']
 
