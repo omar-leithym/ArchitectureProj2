@@ -1,0 +1,18 @@
+# Simple test program for custom ISA
+# First, load values from memory
+
+# Load values from memory
+LOAD r1, 0(r0)    # Load value 42 from memory address 0 into r1
+LOAD r2, 1(r0)    # Load value 25 from memory address 1 into r2
+
+# Arithmetic operations
+ADD r3, r1, r2    # r3 = r1 + r2 = 42 + 25 = 67
+SUB r4, r1, r2    # r4 = r1 - r2 = 42 - 25 = 17
+MUL r5, r3, r4    # r5 = r3 * r4 = 67 * 17 = 1139
+NOR r6, r1, r2    # r6 = ~(r1 | r2) = ~(42 | 25) = ~(0x2A | 0x19) = ~0x3B = 0xFFC4
+
+# Store results back to memory
+STORE r3, 2(r0)   # Store r3 (67) to memory address 2
+STORE r4, 3(r0)   # Store r4 (17) to memory address 3
+STORE r5, 4(r0)   # Store r5 (1139) to memory address 4
+STORE r6, 5(r0)   # Store r6 (0xFFC4) to memory address 5
