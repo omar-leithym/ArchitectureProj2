@@ -172,6 +172,10 @@ def beq(rA, rB, offset):
         output_to_gui_global(f"BEQ: Branch not taken, r{rA}={registers[rA]}, r{rB}={registers[rB]}")
         program_counter += 1
         return False
+    #return program_counter
+
+def program_counter():
+    return program_counter
 
 # Call and Return Instructions
 def call(label):

@@ -1,12 +1,14 @@
 from tkinter import *
+from tkinter import ttk
 from tkinter import filedialog
 import backend as backend
+import ExecutionUnit as ExecutionUnit
 
 # Initialize the main application window
 root = Tk()
 root.title("Tomasulo Simulator")
-root.geometry("800x600")
-root.configure(bg="#f0f0f0")  # Light grey background for a modern look
+root.geometry("1000x800")  # Increased size to accommodate the table
+root.configure(bg="#f0f0f0")
 
 # Label for the app title
 titleLabel = Label(root, text="Tomasulo Simulator", font=("Helvetica", 16, "bold"), bg="#f0f0f0")
@@ -62,14 +64,13 @@ memory_frame.grid(row=1, column=2, padx=(5, 20), pady=(10, 0), sticky="nsew")
 memoryLabel = Label(memory_frame, text="Memory", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
 memoryLabel.pack(anchor="w")
 
-# Memory Text box
-memoryBox = Text(memory_frame, height=15, width=35, font=("Courier", 10), wrap="word")  # Adjusted height to be smaller
+memoryBox = Text(memory_frame, height=15, width=35, font=("Courier", 10), wrap="word")
 memoryBox.pack(side="left", fill="both", expand=True)
 memoryScrollbar = Scrollbar(memory_frame, command=memoryBox.yview)
 memoryScrollbar.pack(side="right", fill="y")
 memoryBox.config(yscrollcommand=memoryScrollbar.set)
 
-# Frame to hold the Program Counter section below the Memory text box
+# PC Frame (same as before)
 pc_frame = Frame(root, bg="#f0f0f0")
 pc_frame.grid(row=2, column=0, padx=(5, 20), pady=(10, 10), sticky="nw")
 
@@ -77,8 +78,7 @@ pc_frame.grid(row=2, column=0, padx=(5, 20), pady=(10, 10), sticky="nw")
 pc_label = Label(pc_frame, text="Initial PC", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
 pc_label.pack(anchor="w")
 
-# Program Counter Entry
-pc_value = IntVar(value=0)  # Default value is 0
+pc_value = IntVar(value=0)
 pc_entry = Entry(pc_frame, textvariable=pc_value, font=("Courier", 12), width=10)
 pc_entry.pack(side="left", padx=(0, 10))
 
@@ -87,7 +87,7 @@ def increment_pc():
     pc_value.set(pc_value.get() + 1)  # Increment by 1
 
 def decrement_pc():
-    pc_value.set(pc_value.get() - 1)  # Decrement by 1
+    pc_value.set(pc_value.get() - 1)
 
 increment_button = Button(pc_frame, text="↑", font=("Helvetica", 10), command=increment_pc, width=2)
 increment_button.pack(side="left")
@@ -95,20 +95,49 @@ increment_button.pack(side="left")
 decrement_button = Button(pc_frame, text="↓", font=("Helvetica", 10), command=decrement_pc, width=2)
 decrement_button.pack(side="left")
 
-# Frame to hold the output Text box
+# Frame to hold the output Text box and table
 output_frame = Frame(root)
 output_frame.grid(row=4, column=0, columnspan=3, padx=(20, 20), pady=(10, 20), sticky="nsew")
 
-# Label for Output Text box
-outputLabel = Label(output_frame, text="Simulation Output", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
+# Create a Notebook (tabbed interface)
+notebook = ttk.Notebook(output_frame)
+notebook.pack(fill="both", expand=True)
+
+# Tab for simulation output
+output_tab = Frame(notebook)
+notebook.add(output_tab, text="Simulation Output")
+
+outputLabel = Label(output_tab, text="Simulation Output", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
 outputLabel.pack(anchor="w")
 
-# Output Text box
-outputBox = Text(output_frame, height=15, width=80, font=("Courier", 10), wrap="word")
-outputBox.pack(side="left", fill="both", expand=True)
-outputScrollbar = Scrollbar(output_frame, command=outputBox.yview)
+outputBox = Text(output_tab, height=10, width=80, font=("Courier", 10), wrap="word")
+outputBox.pack(side="top", fill="both", expand=True)
+outputScrollbar = Scrollbar(output_tab, command=outputBox.yview)
 outputScrollbar.pack(side="right", fill="y")
 outputBox.config(yscrollcommand=outputScrollbar.set)
+
+# Tab for instruction timeline
+timeline_tab = Frame(notebook)
+notebook.add(timeline_tab, text="Log Table")
+
+# Create a frame for the table
+table_frame = Frame(timeline_tab)
+table_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+# Create a treeview widget for the table
+columns = ("Instruction", "Issue Cycle", "Execute Start", "Execute End", "Write Cycle")
+timeline_table = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+
+# Define column headings
+for col in columns:
+    timeline_table.heading(col, text=col)
+    timeline_table.column(col, width=150, anchor="center")
+
+# Add scrollbar
+scrollbar = Scrollbar(table_frame, orient="vertical", command=timeline_table.yview)
+scrollbar.pack(side="right", fill="y")
+timeline_table.configure(yscrollcommand=scrollbar.set)
+timeline_table.pack(fill="both", expand=True)
 
 # Configure row weight for output frame
 root.grid_rowconfigure(1, weight=1)
@@ -147,6 +176,7 @@ def next_step():
         backend.execute_single_step()
 
 
+# Rest of your functions remain the same...
 def load_instructions_file():
     file_path = filedialog.askopenfilename(title="Select Instructions File", filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
     if file_path:
@@ -187,6 +217,17 @@ def simulate():
 def stop_simulation():
     backend.stop_simulation_func()
 
+def update_timeline_table():
+    timeline_data = ExecutionUnit.get_instruction_timeline()
+    for instr in timeline_data:
+        timeline_table.insert("", "end", values=(
+            instr['instruction'],
+            instr['issue_cycle'],
+            instr['exec_start'],
+            instr['exec_end'],
+            instr['write_cycle']
+        ))
+
 # File selection buttons for Instructions and Memory
 chooseInstructionsButton = Button(root, text="Choose Instructions File", font=("Helvetica", 10), command=load_instructions_file, bg="#666666", fg="white")
 chooseInstructionsButton.grid(row=2, column=1, pady=(10, 0), sticky="w", padx=(20, 0))
@@ -194,7 +235,7 @@ chooseInstructionsButton.grid(row=2, column=1, pady=(10, 0), sticky="w", padx=(2
 chooseMemoryButton = Button(root, text="Choose Memory File", font=("Helvetica", 10), command=load_memory_file, bg="#666666", fg="white")
 chooseMemoryButton.grid(row=2, column=2, pady=(10, 0), sticky="w", padx=(20, 0))
 
-# Button to run the simulation
+# Simulation control buttons
 simulateButton = Button(root, text="Run Simulation", font=("Helvetica", 12), command=simulate, bg="#666666", fg="white")
 simulateButton.grid(row=3, column=0, pady=(10, 20), sticky="w", padx=(20, 0))
 
