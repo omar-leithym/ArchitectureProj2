@@ -1,10 +1,5 @@
-# Add these variables to the backend
-step_mode = False
-step_pending = False
-
-def execute_single_step():
-    global step_pending
-    step_pending = True
+import ExecutionUnit
+from RegisterManager import RegisterManager
 
 # Global Variables
 registers = [0] * 8  # Only 8 registers (0-7)
@@ -15,9 +10,16 @@ executable_instructions = []
 output_to_gui_global = None
 stop_simulation = False
 
-# Utility Functions for reading and parsing instructions
-def read_instructions_from_text(instructions_text):
-    return instructions_text.splitlines()
+# Add these variables to the backend
+step_mode = False
+step_pending = False
+
+execution_unit = ExecutionUnit.ExecutionUnit()
+reg_manager = RegisterManager()
+
+def program_counter():
+    global  program_counter
+    return bool(program_counter)
 
 def load_memory_from_text(memory_text):
     global memory
@@ -44,6 +46,7 @@ def load_word(address):
 def store_word(address, value):
     memory[address] = value & 0xFFFF  # Ensure 16-bit value
 
+
 def output_to_gui_globalRegisters(instruction=""):
     output = f"Instruction: {instruction}\n"
     output += "Registers: "
@@ -51,6 +54,30 @@ def output_to_gui_globalRegisters(instruction=""):
         output += f"r{i}={registers[i]} "
     output += "\n" + f"Memory: {memory}\n"
     output_to_gui_global(output)
+
+
+def execute_single_step():
+    global step_pending
+    step_pending = True
+    #clear_output_cycles()
+    execution_unit.get_instruction_timeline()
+
+
+def clear_output_cycles():
+    global registers, program_counter, memory, labels, executable_instructions
+    global output_to_gui_global, stop_simulation
+
+    registers = [0] * 8
+    program_counter = 0
+    memory = {}
+    labels = {}
+    executable_instructions = []
+    output_to_gui_global = None
+    stop_simulation = False
+
+# Utility Functions for reading and parsing instructions
+def read_instructions_from_text(instructions_text):
+    return instructions_text.splitlines()
 
 def parse_register(reg):
     reg = reg.strip()
@@ -159,7 +186,6 @@ def store(rA, offset, rB):
 
 # Conditional Branch Instruction
 def beq(rA, rB, offset):
-    global program_counter
     if rA is None or rB is None or offset is None:
         output_to_gui_global(f"Error: BEQ instruction missing operands rA={rA}, rB={rB}, offset={offset}")
         return False
@@ -173,9 +199,6 @@ def beq(rA, rB, offset):
         program_counter += 1
         return False
     #return program_counter
-
-def program_counter():
-    return program_counter
 
 # Call and Return Instructions
 def call(label):
@@ -249,17 +272,22 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, single_step
     global stop_simulation
     global step_mode
     global step_pending
+    global registers, memory
+    
+
+   # if not hasattr(main, "initialized"):
+    registers = [0]*8
+    memory = {}
+    labels = {}
+    executable_instructions = []
+    stop_simulation = False
+        #main.initialized = True
     
     output_to_gui_global = output_to_gui
     step_mode = single_step
-    step_pending = not single_step  # If not in single step mode, allow first instruction to execute
-    
-    # Reset global variables
-    global registers, memory, labels
-    registers = [0] * 8  # Only 8 registers (0-7)
-    memory = {}
-    labels = {}
-    stop_simulation = False
+    step_pending = not single_step
+    reg_manager.__init__()
+    execution_unit.__init__()
     
     # Step 1: Get the instruction and memory data as text
     load_memory_from_text(memory_text)
@@ -271,7 +299,7 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, single_step
     # Step 3: First pass to register labels
     labels = {}
     executable_instructions = []
-    for line_number, line in enumerate(instruction_lines):
+    for line in instructions_text.splitlines():
         stripped_line = line.strip()
 
         # Remove comments
@@ -293,75 +321,90 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, single_step
 
     # Step 4: Execute instructions
     instruction_count = len(executable_instructions)
-    program_counter = starting_pc  # Initialize PC to user-specified starting address
     running = True  # Flag to control the execution loop
+    program_counter = starting_pc 
 
     # Validate starting_pc
     if program_counter < base_address or program_counter >= base_address + instruction_count:
         output_to_gui_global(f"Error: Starting PC {program_counter} is out of valid instruction address range.")
         return
+    if single_step:
+        return []
 
     while not stop_simulation and running and 0 <= (program_counter - base_address) < instruction_count:
-        # If in step mode, wait for step_pending to be true
-        if step_mode and not step_pending:
-            break
+
+        if step_mode:
+            if not step_pending:
+                output_to_gui_global(f"Waiting for next step at cycle {execution_unit.current_cycle}")
+                break
+            step_pending = False
         
-        step_pending = False  # Reset step pending flag
-        
+        if step_mode:
         # Calculate the index in the executable_instructions list
-        index = program_counter - base_address
-
-        # Fetch the current instruction
-        try:
+            index = program_counter - base_address
+            if index >= len(executable_instructions):
+                break
             line = executable_instructions[index].strip()
-        except IndexError:
-            output_to_gui_global(f"Error: Program counter {program_counter} out of bounds.")
-            break
-
-        original_line = line  # Preserve the original line for debugging
-
-        # Parse the instruction
-        opcode, rA, rB, rC, imm_or_label, offset = instruction_splitting(line)
-        if not opcode:
-            # If parsing failed, skip to the next instruction
-            program_counter += 1
-            continue
-
-        # Execute the instruction based on its opcode
-        if opcode in instructions:
-            # Load and Store Instructions
-            if opcode == 'LOAD':
-                instructions[opcode](rA, imm_or_label, rB)
+            # Parse the instruction
+            opcode, rA, rB, rC, imm_or_label, offset = instruction_splitting(line)
+            if not opcode:
+                # If parsing failed, skip to the next instruction
                 program_counter += 1
-            elif opcode == 'STORE':
-                instructions[opcode](rC, imm_or_label, rB)
-                program_counter += 1
-            # Conditional Branch Instruction
-            elif opcode == 'BEQ':
-                branch_taken = instructions[opcode](rB, rC, imm_or_label)
-                # program_counter is updated inside the beq function
-            # Call and Return Instructions
-            elif opcode == 'CALL':
-                call_taken = instructions[opcode](imm_or_label)
-                if not call_taken:
-                    program_counter += 1
-            elif opcode == 'RET':
-                ret_taken = instructions[opcode]()
-                if not ret_taken:
-                    program_counter += 1
-            # Arithmetic and Logic Instructions
-            elif opcode in ['ADD', 'SUB', 'NOR', 'MUL']:
-                instructions[opcode](rA, rB, rC)
-                program_counter += 1
+                continue
+
+            instruction_record = { 
+                'op': opcode,
+                'dest_reg': f"r{rA}" if rA is not None else None,
+                'src_regs': [f"r{rB}", f"r{rC}"] if (rB and rC) else [f"r{rB}"] if rB else [],
+                'offset': imm_or_label if imm_or_label else None
+            }
+            execution_unit.issue_instruction(instruction_record, reg_manager)
+            execution_unit.execute_process(reg_manager)
+            output_to_gui_globalRegisters(instruction = f"CYCLE {execution_unit.current_cycle}")
+            issued_success = execution_unit.issue_instruction(instruction_record, reg_manager)
+            if not issued_success:
+                output_to_gui_global(f"Issue failed at PC={program_counter}: {opcode}")
             else:
-                output_to_gui_global(f"Error: Unhandled opcode '{opcode}'")
-                program_counter += 1
-        else:
-            output_to_gui_global(f"Error: Unknown opcode '{opcode}'")
-            program_counter += 1
+                w_len = len(execution_unit.waiting_to_execute_instructions)
+                output_to_gui_global(f"Issued {opcode}; Waiting queue now length {w_len}")
+                execution_unit.execute_process(reg_manager)
+                # Execute the instruction based on its opcode
+                if opcode in instructions:
+                    # Load and Store Instructions
+                    if opcode == 'LOAD':
+                        instructions[opcode](rA, imm_or_label, rB)
+                        program_counter += 1
+                    elif opcode == 'STORE':
+                        instructions[opcode](rC, imm_or_label, rB)
+                        program_counter += 1
+                    # Conditional Branch Instruction
+                    elif opcode == 'BEQ':
+                        branch_taken = instructions[opcode](rB, rC, imm_or_label)
+                        # program_counter is updated inside the beq function
+                    # Call and Return Instructions
+                    elif opcode == 'CALL':
+                        call_taken = instructions[opcode](imm_or_label)
+                        if not call_taken:
+                            program_counter += 1
+                    elif opcode == 'RET':
+                        ret_taken = instructions[opcode]()
+                        if not ret_taken:
+                            program_counter += 1
+                    # Arithmetic and Logic Instructions
+                    elif opcode in ['ADD', 'SUB', 'NOR', 'MUL']:
+                        instructions[opcode](rA, rB, rC)
+                        program_counter += 1
+                    else:
+                        output_to_gui_global(f"Error: Unhandled opcode '{opcode}'")
+                        program_counter += 1
+                    break
+
+            #program_counter += 1
 
         # Output the register states after execution
+        original_line = line
         output_to_gui_globalRegisters(instruction=original_line)
 
         # Ensure r0 remains zero
         registers[0] = 0
+        return execution_unit.get_instruction_timeline()

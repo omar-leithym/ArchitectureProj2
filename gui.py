@@ -154,7 +154,7 @@ def next_step():
         next_step.simulation_started = True
         
         # Clear the output area
-        outputBox.delete(1.0, END)
+        #outputBox.delete(1.0, END)
         
         # Get the instructions and memory text
         instructions_text = instructionsBox.get(1.0, END)
@@ -171,12 +171,15 @@ def next_step():
         
         # Call the main function from the backend with single_step=True
         backend.main(instructions_text, memory_text, output_to_gui, starting_pc, single_step=True)
+        update_timeline_table()
+
     else:
         # Execute the next instruction
         backend.execute_single_step()
+        backend.execution_unit.execute_process(backend.reg_manager)
+        update_timeline_table()
 
 
-# Rest of your functions remain the same...
 def load_instructions_file():
     file_path = filedialog.askopenfilename(title="Select Instructions File", filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
     if file_path:
@@ -195,7 +198,7 @@ def load_memory_file():
 # Function to run the simulation
 def simulate():
     # Clear the output area
-    outputBox.delete(1.0, END)
+    #outputBox.delete(1.0, END)
     
     # Get the instructions and memory text
     instructions_text = instructionsBox.get(1.0, END)
@@ -211,21 +214,28 @@ def simulate():
         root.update()  # Update the GUI
     
     # Call the main function from the backend
-    backend.main(instructions_text, memory_text, output_to_gui, starting_pc)
+    backend.main(instructions_text, memory_text, output_to_gui, starting_pc, single_step= False)
+    # backend.execute_single_step()
+    # backend.execution_unit.execute_process(backend.reg_manager)
+    update_timeline_table()
 
 # Function to stop the simulation
 def stop_simulation():
     backend.stop_simulation_func()
 
 def update_timeline_table():
-    timeline_data = ExecutionUnit.get_instruction_timeline()
+
+    # for item in timeline_table.get_children():
+    #     timeline_table.delete(item)
+
+    timeline_data = backend.execution_unit.get_instruction_timeline()
     for instr in timeline_data:
         timeline_table.insert("", "end", values=(
             instr['instruction'],
-            instr['issue_cycle'],
-            instr['exec_start'],
-            instr['exec_end'],
-            instr['write_cycle']
+            instr['issue_cycle'] or "-",
+            instr['exec_start'] or "-",
+            instr['exec_end'] or "-",
+            instr['write_cycle'] or "-"
         ))
 
 # File selection buttons for Instructions and Memory
