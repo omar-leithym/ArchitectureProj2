@@ -12,8 +12,7 @@ class RegisterManager:
         }
     
     def validate_register(self, reg_name):
-
-        if not isinstance(reg_name, str) or not reg_name.upper() in self.registers:
+        if not isinstance(reg_name, str) or reg_name.upper() not in self.registers:
             raise ValueError("Invalid register name: {reg_name}")
         return reg_name.upper()
     
@@ -32,7 +31,8 @@ class RegisterManager:
     def set_ready(self, reg_name):
         #Mark reg as ready when write is complete
         reg = self.validate_register(reg_name)
-        return self.registers[reg]['status']
+        self.registers[reg]['status'] = 'READY'
+       # return self.registers[reg]['status']
     
     def get_status(self, reg_name):
         #Get current status
