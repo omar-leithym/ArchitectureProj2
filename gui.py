@@ -176,11 +176,67 @@ scrollbar.pack(side="right", fill="y")
 timeline_table.configure(yscrollcommand=scrollbar.set)
 timeline_table.pack(fill="both", expand=True)
 
+# Add a new tab for reservation stations
+rs_tab = Frame(notebook)
+notebook.add(rs_tab, text="Reservation Stations")
+
+# Create a frame for the reservation stations table
+rs_frame = Frame(rs_tab)
+rs_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+# Create a treeview widget for the reservation stations
+rs_columns = ("Unit Type", "Station #", "Busy", "Op", "Vj", "Vk", "Qj", "Qk", "Dest")
+rs_table = ttk.Treeview(rs_frame, columns=rs_columns, show="headings", height=15)
+
+# Define column headings
+for col in rs_columns:
+    rs_table.heading(col, text=col)
+    rs_table.column(col, width=80, anchor="center")
+
+# Add scrollbar
+rs_scrollbar = Scrollbar(rs_frame, orient="vertical", command=rs_table.yview)
+rs_scrollbar.pack(side="right", fill="y")
+rs_table.configure(yscrollcommand=rs_scrollbar.set)
+rs_table.pack(fill="both", expand=True)
+
 # Configure row weight for output frame
 root.grid_rowconfigure(1, weight=1)
 root.grid_columnconfigure(1, weight=1)
 root.grid_columnconfigure(2, weight=1)
 root.grid_rowconfigure(4, weight=2)
+
+# Add CDB status display
+cdb_frame = Frame(output_frame)
+cdb_frame.pack(fill="x", expand=False, padx=5, pady=5, before=notebook)
+
+cdb_label = Label(cdb_frame, text="Common Data Bus:", font=("Helvetica", 10, "bold"))
+cdb_label.pack(side="left", padx=(0, 10))
+
+cdb_status = StringVar(value="Idle")
+cdb_status_label = Label(cdb_frame, textvariable=cdb_status, font=("Helvetica", 10))
+cdb_status_label.pack(side="left")
+
+def update_rs_table(rs_data):
+    # Clear existing data
+    for item in rs_table.get_children():
+        rs_table.delete(item)
+    
+    # Insert new data
+    for fu_type, stations in rs_data.items():
+        for i, rs in enumerate(stations):
+            values = [
+                fu_type,
+                i,
+                "Yes" if rs['busy'] else "No",
+                rs['instruction']['op'] if rs['busy'] and rs['instruction'] else "-",
+                "Ready" if 'vj' in rs and rs['vj'] is not None else "-",
+                "Ready" if 'vk' in rs and rs['vk'] is not None else "-",
+                rs['qj'] if 'qj' in rs and rs['qj'] else "-",
+                rs['qk'] if 'qk' in rs and rs['qk'] else "-",
+                rs['dest'] if 'dest' in rs and rs['dest'] else "-"
+            ]
+            rs_table.insert("", "end", values=values)
+
 
 def load_instructions_file():
     file_path = filedialog.askopenfilename(title="Select Instructions File", filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
@@ -213,14 +269,15 @@ def update_timeline_table(timeline_data):
             instr['write_cycle'] if instr['write_cycle'] is not None else "-"
         ))
 
-# Function to run the simulation
 def simulate():
     # Clear the output area
     outputBox.delete(1.0, END)
     
-    # Clear the timeline table
+    # Clear the tables
     for item in timeline_table.get_children():
         timeline_table.delete(item)
+    for item in rs_table.get_children():
+        rs_table.delete(item)
     
     # Get the instructions and memory text
     instructions_text = instructionsBox.get(1.0, END)
@@ -244,8 +301,15 @@ def simulate():
         root.update()  # Update the GUI
     
     # Call the main function from the backend
-    timeline_data = backend.main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config)
+    timeline_data, state_data = backend.main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config)
     update_timeline_table(timeline_data)
+    update_rs_table(state_data['reservation_stations'])
+    
+    # Update CDB status
+    if state_data['cdb']['busy']:
+        cdb_status.set(f"Busy - Source: {state_data['cdb']['source_rs']}, Dest: {state_data['cdb']['dest']}")
+    else:
+        cdb_status.set("Idle")
 
 # File selection buttons for Instructions and Memory
 chooseInstructionsButton = Button(root, text="Choose Instructions File", font=("Helvetica", 10), command=load_instructions_file, bg="#666666", fg="white")

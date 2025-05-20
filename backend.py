@@ -346,4 +346,4 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
     while execution_unit.has_pending_instructions():
         execution_unit.execute_process(reg_manager)
 
-    return execution_unit.get_instruction_timeline()
+    return execution_unit.get_instruction_timeline(), execution_unit.get_state()
