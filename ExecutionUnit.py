@@ -213,7 +213,7 @@ class ExecutionUnit:
                     
                     # Update instruction record
                     instr_record['exec_start'] = self.current_cycle
-                    instr_record['exec_end'] = self.current_cycle + rs['cycles_left']
+                    instr_record['exec_end'] = self.current_cycle + rs['cycles_left'] - 1
                     self.executing_instructions.append(instr_record)
                     newly_started.append(instr_record)
                     

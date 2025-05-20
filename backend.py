@@ -304,7 +304,8 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
         output_to_gui_global(f"Error: Starting PC {pc_value} is out of valid instruction address range.")
         return []
 
-    # Process all instructions at once
+    # Prepare pending instructions queue
+    pending_instructions = []
     for index in range(len(executable_instructions)):
         line = executable_instructions[index].strip()
         # Parse the instruction
@@ -336,14 +337,28 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
                 'offset': imm_or_label if imm_or_label else None
             }
         
+        pending_instructions.append((instruction_record, pc_value + index))
+    
+    # Issue instructions until all are issued
+    while pending_instructions:
+        # Try to issue the first pending instruction
+        instruction_record, pc = pending_instructions[0]
         issued_success = execution_unit.issue_instruction(instruction_record, reg_manager)
-        if not issued_success:
-            output_to_gui_global(f"Issue failed at PC={pc_value + index}: {opcode}")
+        
+        if issued_success:
+            # Remove from pending list if successful
+            pending_instructions.pop(0)
+            output_to_gui_global(f"Issued at PC={pc}: {instruction_record['op']}")
         else:
-            execution_unit.execute_process(reg_manager)
-
+            # If issue failed, execute one cycle to potentially free up units
+            output_to_gui_global(f"Waiting for unit at PC={pc}: {instruction_record['op']}")
+        
+        # Execute a cycle regardless of whether issue succeeded
+        execution_unit.execute_process(reg_manager)
+    
     # Run until all instructions complete
     while execution_unit.has_pending_instructions():
         execution_unit.execute_process(reg_manager)
-
+    
     return execution_unit.get_instruction_timeline(), execution_unit.get_state()
+
