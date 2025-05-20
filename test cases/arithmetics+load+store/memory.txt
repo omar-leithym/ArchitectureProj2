@@ -1,0 +1,3 @@
+# Memory initialization (address value)
+0 42     # Value 42 at address 0
+1 25     # Value 25 at address 1
