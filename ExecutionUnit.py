@@ -237,7 +237,8 @@ class ExecutionUnit:
             rs_index = instr_record['rs_index']
             rs = self.reservation_stations[fu_type][rs_index]
             
-            if rs['busy'] and rs['executing'] and rs['cycles_left'] <= 0 and not self.cdb['busy']:
+            if rs['busy'] and rs['executing'] and rs['cycles_left'] <= 0:
+             if not self.cdb['busy']:
                 # Instruction has completed execution, put result on CDB
                 self.cdb['busy'] = True
                 self.cdb['result'] = True  # Just mark as available

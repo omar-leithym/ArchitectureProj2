@@ -45,3 +45,4 @@ class RegisterManager:
             f"{reg}: {info['status']}"
             for reg, info in self.registers.items()
         )
+
