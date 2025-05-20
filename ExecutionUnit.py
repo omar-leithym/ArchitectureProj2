@@ -102,7 +102,7 @@ class ExecutionUnit:
         for instr_record in list(self.executing_instructions):
             fu_type = instr_record['fu_type']
             if fu_type in ('BEQ', 'CALL_RET') and self.current_cycle >= instr_record['exec_end']:
-                # Get actual branch outcome from backend
+                # Get actual branch outcome - use is_program_counter_nonzero instead of program_counter
                 actual_taken = backend.program_counter()
                 # Handle misprediction
                 if actual_taken != (self.prediction_state == "taken"):
@@ -135,6 +135,9 @@ class ExecutionUnit:
                 self.executing_instructions.append(instr_record)
                 newly_started.append(instr_record)
 
+                # Execute the actual instruction to see results
+                self._execute_instruction(instr_record['instruction'])
+
         for rec in newly_started:
             self.waiting_to_execute_instructions.remove(rec)
 
@@ -159,6 +162,101 @@ class ExecutionUnit:
 
         for rec in finished:
             self.executing_instructions.remove(rec)
+
+    def _execute_instruction(self, instruction):
+        """Actually execute the instruction to see results"""
+        op = instruction['op'].upper()
+        
+        if op == 'LOAD':
+            dest_reg = instruction.get('dest_reg')
+            src_reg = instruction.get('src_regs', [''])[0] if instruction.get('src_regs') else None
+            offset = instruction.get('offset')
+            
+            if dest_reg and src_reg and offset is not None:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src_num = int(src_reg[1:]) if src_reg[0].lower() == 'r' else None
+                
+                if dest_num is not None and src_num is not None:
+                    backend.load(dest_num, offset, src_num)
+                    
+        elif op == 'STORE':
+            src_reg = instruction.get('src_regs', [''])[0] if instruction.get('src_regs') else None
+            dest_reg = instruction.get('dest_reg')
+            offset = instruction.get('offset')
+            
+            if src_reg and offset is not None:
+                src_num = int(src_reg[1:]) if src_reg[0].lower() == 'r' else None
+                dest_num = int(dest_reg[1:]) if dest_reg and dest_reg[0].lower() == 'r' else None
+                
+                if src_num is not None and dest_num is not None:
+                    backend.store(dest_num, offset, src_num)
+                    
+        elif op == 'ADD':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.add(dest_num, src1_num, src2_num)
+                    
+        elif op == 'SUB':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.sub(dest_num, src1_num, src2_num)
+                    
+        elif op == 'MUL':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.mul(dest_num, src1_num, src2_num)
+                    
+        elif op == 'NOR':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.nor(dest_num, src1_num, src2_num)
+                    
+        elif op == 'BEQ':
+            src_regs = instruction.get('src_regs', [])
+            offset = instruction.get('offset')
+            
+            if len(src_regs) >= 2 and offset is not None:
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if src1_num is not None and src2_num is not None:
+                    backend.beq(src1_num, src2_num, offset)
+                    
+        elif op == 'CALL':
+            label = instruction.get('offset')
+            if label:
+                backend.call(label)
+                
+        elif op == 'RET':
+            backend.ret()
 
     def _flush_incorrect_instructions(self):
         """Remove all instructions issued after the branch"""
@@ -227,7 +325,10 @@ class ExecutionUnit:
                 else:
                     inst_str = f"{op} {offset}"
             elif op in ('CALL', 'RET'):
-                inst_str = op
+                if op == 'CALL' and offset:
+                    inst_str = f"{op} {offset}"
+                else:
+                    inst_str = op
             else:
                 if len(src_regs) >= 2:
                     inst_str = f"{op} {dest_reg}, {src_regs[0]}, {src_regs[1]}"

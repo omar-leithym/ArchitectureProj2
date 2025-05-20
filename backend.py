@@ -50,11 +50,11 @@ def output_to_gui_globalRegisters(instruction=""):
     output_to_gui_global(output)
 
 def clear_output_cycles():
-    global registers, pc_value, memory, labels, executable_instructions  # Changed program_counter to pc_value
+    global registers, pc_value, memory, labels, executable_instructions
     global output_to_gui_global
 
     registers = [0] * 8
-    pc_value = 0  # Changed program_counter to pc_value
+    pc_value = 0
     memory = {}
     labels = {}
     executable_instructions = []
@@ -110,7 +110,7 @@ def instruction_splitting(line):
             return None, None, None, None, None, None
         
         if opcode == 'STORE':
-            return opcode, None, reg2, reg1, offset, None  # rB, offset, rA
+            return opcode, reg1, reg2, None, offset, None  # Changed: rA, rB, offset
         else:  # LOAD
             return opcode, reg1, reg2, None, offset, None  # rA, rB, offset
 
@@ -171,30 +171,30 @@ def store(rA, offset, rB):
 
 # Conditional Branch Instruction
 def beq(rA, rB, offset):
-    global pc_value  # Changed program_counter to pc_value
+    global pc_value
     if rA is None or rB is None or offset is None:
         output_to_gui_global(f"Error: BEQ instruction missing operands rA={rA}, rB={rB}, offset={offset}")
         return False
     
     if registers[rA] == registers[rB]:
-        pc_value = pc_value + 1 + offset  # Changed program_counter to pc_value
+        pc_value = pc_value + 1 + offset
         output_to_gui_global(f"BEQ: Branch taken to PC+1+offset = {pc_value}")
         return True
     else:
         output_to_gui_global(f"BEQ: Branch not taken, r{rA}={registers[rA]}, r{rB}={registers[rB]}")
-        pc_value += 1  # Changed program_counter to pc_value
+        pc_value += 1
         return False
 
 # Call and Return Instructions
 def call(label):
-    global pc_value  # Changed program_counter to pc_value
+    global pc_value
     if label is None:
         output_to_gui_global(f"Error: CALL instruction missing label")
         return False
     
     if label in labels:
-        registers[1] = pc_value + 1  # Store return address in R1, changed program_counter to pc_value
-        pc_value = labels[label]  # Changed program_counter to pc_value
+        registers[1] = pc_value + 1  # Store return address in R1
+        pc_value = labels[label]
         output_to_gui_global(f"CALL: r1 = {registers[1]}, jumping to label '{label}' at PC = {pc_value}")
         return True
     else:
@@ -202,8 +202,8 @@ def call(label):
         return False
 
 def ret():
-    global pc_value  # Changed program_counter to pc_value
-    pc_value = registers[1]  # Changed program_counter to pc_value
+    global pc_value
+    pc_value = registers[1]
     output_to_gui_global(f"RET: Jumping to address in r1 = {pc_value}")
     return True
 
@@ -250,7 +250,7 @@ instructions = {
 
 # Main Function
 def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
-    global pc_value  # Changed program_counter to pc_value
+    global pc_value
     global labels
     global output_to_gui_global
     global executable_instructions
@@ -297,10 +297,10 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
 
     # Step 4: Execute instructions
     instruction_count = len(executable_instructions)
-    pc_value = starting_pc  # Changed program_counter to pc_value
+    pc_value = starting_pc
 
     # Validate starting_pc
-    if pc_value < base_address or pc_value >= base_address + instruction_count:  # Changed program_counter to pc_value
+    if pc_value < base_address or pc_value >= base_address + instruction_count:
         output_to_gui_global(f"Error: Starting PC {pc_value} is out of valid instruction address range.")
         return []
 
@@ -312,17 +312,33 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
         if not opcode:
             continue
 
-        instruction_record = { 
-            'op': opcode,
-            'dest_reg': f"r{rA}" if rA is not None else None,
-            'src_regs': [f"r{rB}", f"r{rC}"] if (rB is not None and rC is not None) else 
-                       [f"r{rB}"] if rB is not None else [],
-            'offset': imm_or_label if imm_or_label else None
-        }
+        # Fix for STORE instructions
+        if opcode == 'STORE':
+            instruction_record = { 
+                'op': opcode,
+                'dest_reg': f"r{rA}" if rA is not None else None,  # This is the value to store
+                'src_regs': [f"r{rB}"] if rB is not None else [],  # This is the base register
+                'offset': imm_or_label if imm_or_label is not None else None
+            }
+        elif opcode == 'CALL':
+            instruction_record = { 
+                'op': opcode,
+                'dest_reg': None,
+                'src_regs': [],
+                'offset': imm_or_label if imm_or_label else None
+            }
+        else:
+            instruction_record = { 
+                'op': opcode,
+                'dest_reg': f"r{rA}" if rA is not None else None,
+                'src_regs': [f"r{rB}", f"r{rC}"] if (rB is not None and rC is not None) else 
+                           [f"r{rB}"] if rB is not None else [],
+                'offset': imm_or_label if imm_or_label else None
+            }
         
         issued_success = execution_unit.issue_instruction(instruction_record, reg_manager)
         if not issued_success:
-            output_to_gui_global(f"Issue failed at PC={pc_value + index}: {opcode}")  # Changed program_counter to pc_value
+            output_to_gui_global(f"Issue failed at PC={pc_value + index}: {opcode}")
         else:
             execution_unit.execute_process(reg_manager)
 
