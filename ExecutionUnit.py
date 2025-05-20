@@ -1,190 +1,404 @@
 import backend
 from RegisterManager import RegisterManager 
+
 class ExecutionUnit:
-    def __init__(self):
+    def __init__(self, fu_config=None):
+        # Default configuration if none provided
+        default_config = {
+            'LOAD': {'cycles': 6, 'unit_count': 2},
+            'STORE': {'cycles': 6, 'unit_count': 2},
+            'ADD_SUB': {'cycles': 2, 'unit_count': 4},
+            'MUL': {'cycles': 10, 'unit_count': 2},
+            'NOR': {'cycles': 1, 'unit_count': 2},
+            'BEQ': {'cycles': 1, 'unit_count': 2},
+            'CALL_RET': {'cycles': 1, 'unit_count': 1}
+        }
         
-        self.functional_units = {
-            'LOAD': {'cycles': 6, 'busy': False, 'current_instruction': None, 'unit_count': 2},
-            'STORE': {'cycles': 6, 'busy': False, 'current_instruction': None, 'unit_count': 2},
-            'ADD_SUB': {'cycles': 2, 'busy': False, 'current_instruction': None, 'unit_count': 4},
-            'MUL': {'cycles': 10, 'busy': False, 'current_instruction': None, 'unit_count': 2},
-            'NOR': {'cycles': 1, 'busy': False, 'current_instruction': None, 'unit_count': 2},
-            'BEQ': {'cycles': 1, 'busy': False, 'current_instruction': None, 'unit_count': 2},
-            'CALL_RET': {'cycles': 1, 'busy': False, 'current_instruction': None, 'unit_count': 1}
+        # Use provided config or default
+        config = fu_config if fu_config else default_config
+        
+        # Create reservation stations for each functional unit type
+        self.reservation_stations = {}
+        for fu_type, settings in config.items():
+            self.reservation_stations[fu_type] = [
+                {
+                    'busy': False,
+                    'instruction': None,
+                    'vj': None,  # Value of first operand
+                    'vk': None,  # Value of second operand
+                    'qj': None,  # Reservation station producing first operand
+                    'qk': None,  # Reservation station producing second operand
+                    'dest': None,  # Destination register
+                    'executing': False,
+                    'cycles_left': 0
+                } for _ in range(settings['unit_count'])
+            ]
+            
+        # Store cycle information for each FU type
+        self.fu_cycles = {fu_type: settings['cycles'] for fu_type, settings in config.items()}
+        
+        # Common Data Bus for result broadcasting
+        self.cdb = {
+            'busy': False,
+            'result': None,
+            'dest': None,
+            'source_rs': None
         }
 
-        #track instructions in each stage
+        # Track instructions in each stage
         self.waiting_to_execute_instructions = []
         self.executing_instructions = []
         self.completed_instructions = []
         self.instruction_history = []
 
-        #Branch prediction and flush state
-        self.prediction_state = "not_taken"  # Track current prediction
+        # Branch prediction and flush state
+        self.prediction_state = "not_taken"
         self.branch_in_progress = False
-        self.instructions_to_flush = []  # Track potentially wrong instructions
+        self.instructions_to_flush = []
 
-        #cycle counter
-        self.current_cycle =  0
-        #branch busy flag
-        #self.branch_busy = False 
+        # Cycle counter
+        self.current_cycle = 0
 
     def issue_instruction(self, instruction, reg_manager):
         op = instruction['op'].upper()
-        fu = self._get_functional_unit_type(op)
+        fu_type = self._get_functional_unit_type(op)
 
         # If branch is being processed, stall new instructions
-        if self.branch_in_progress:
+        if self.branch_in_progress and fu_type not in ('BEQ', 'CALL_RET'):
             return False
+            
+        # Check if there's an available reservation station for this type
+        rs_available = False
+        rs_index = -1
         
-        if self.functional_units[fu]['unit_count'] > 0 and not self.functional_units[fu]['busy']:
-            self.functional_units[fu]['unit_count'] -= 1
-            self.functional_units[fu]['busy'] = True
-        else:
-            return False
-        #Check if functional unit is available
-
-        if op not in ('STORE', 'BEQ', 'RET'):
-            dest = instruction.get('dest_reg')
-            if dest:
-                # We catch KeyError if someone tries to mark R0 busy
-                try:
-                    reg_manager.set_busy(dest, f"{fu}_0")
-                except KeyError:
-                    pass
-
-    #Instruction record
+        for i, rs in enumerate(self.reservation_stations[fu_type]):
+            if not rs['busy']:
+                rs_available = True
+                rs_index = i
+                break
+                
+        if not rs_available:
+            return False  # All reservation stations are busy
+            
+        # Get reservation station
+        rs = self.reservation_stations[fu_type][rs_index]
+        
+        # Mark the reservation station as busy
+        rs['busy'] = True
+        rs['instruction'] = instruction
+        rs['dest'] = instruction.get('dest_reg')
+        
+        # Get source registers
+        src_regs = instruction.get('src_regs', [])
+        
+        # Check if operands are available or need to wait
+        if len(src_regs) >= 1:
+            if reg_manager.is_ready(src_regs[0]):
+                rs['vj'] = True  # Just mark as available
+                rs['qj'] = None
+            else:
+                rs['vj'] = None
+                rs['qj'] = reg_manager.get_status(src_regs[0])  # Use get_status instead of get_producer
+        
+        if len(src_regs) >= 2:
+            if reg_manager.is_ready(src_regs[1]):
+                rs['vk'] = True  # Just mark as available
+                rs['qk'] = None
+            else:
+                rs['vk'] = None
+                rs['qk'] = reg_manager.get_status(src_regs[1])  # Use get_status instead of get_producer
+        
+        # Mark destination register as busy with this reservation station
+        if rs['dest'] and op not in ('STORE', 'BEQ', 'RET'):
+            try:
+                reg_manager.set_busy(rs['dest'], f"{fu_type}_{rs_index}")
+            except ValueError:
+                pass  # Handle R0 case
+        
+        # Instruction record for tracking
         instr_record = {
             'instruction': instruction,
-            'fu_type': fu,
+            'fu_type': fu_type,
+            'rs_index': rs_index,
             'issue_cycle': self.current_cycle,
             'exec_start': None,
             'exec_end': None,
             'write_cycle': None
         }
         self.waiting_to_execute_instructions.append(instr_record)
-        self.instruction_history.append(instr_record)  #Add to history
-        #self.functional_units[fu]['busy'] = True
-        #self.functional_units[fu]['current_instruction'] = instr_record
-
-        if fu in ('BEQ', 'CALL_RET'):
+        self.instruction_history.append(instr_record)
+        
+        if fu_type in ('BEQ', 'CALL_RET'):
             self.prediction_state = "not_taken"
             self.branch_in_progress = True
-            self.instructions_to_flush = []  # Reset flush list
+            self.instructions_to_flush = []
+            
         return True
-        return False
-    
+
+        
     def execute_process(self, reg_manager):
-        if backend.step_mode:
-            self.current_cycle += 1
-        print("THE Cycle is:", self.current_cycle)
+        self.current_cycle += 1
+        
+        # First, handle CDB from previous cycle
+        if self.cdb['busy']:
+            # Broadcast result to all reservation stations
+            for fu_type in self.reservation_stations:
+                for rs in self.reservation_stations[fu_type]:
+                    if rs['busy']:
+                        # Update operands if they were waiting for this result
+                        if rs['qj'] == self.cdb['source_rs']:
+                            rs['vj'] = True
+                            rs['qj'] = None
+                        if rs['qk'] == self.cdb['source_rs']:
+                            rs['vk'] = True
+                            rs['qk'] = None
+            
+            # Update register file
+            if self.cdb['dest']:
+                reg_manager.set_ready(self.cdb['dest'])
+            
+            # Clear CDB
+            self.cdb['busy'] = False
+            self.cdb['result'] = None
+            self.cdb['dest'] = None
+            self.cdb['source_rs'] = None
+
+        
         # Check for completed branches
         for instr_record in list(self.executing_instructions):
-            if fu in ('BEQ', 'CALL_RET') and self.current_cycle >= instr_record['exec_end']:
-                # Get actual branch outcome from backend
+            fu_type = instr_record['fu_type']
+            rs_index = instr_record['rs_index']
+            rs = self.reservation_stations[fu_type][rs_index]
+            
+            if fu_type in ('BEQ', 'CALL_RET') and self.current_cycle >= instr_record['exec_end']:
+                # Get actual branch outcome
                 actual_taken = backend.program_counter()
                 # Handle misprediction
                 if actual_taken != (self.prediction_state == "taken"):
                     self._flush_incorrect_instructions()
-
                 self.branch_in_progress = False
 
-        branch_executing = any(
-            instr_record['fu_type'] in ('BEQ', 'CALL_RET') and 
-            instr_record['exec_start'] is not None and 
-            instr_record['exec_start'] <= self.current_cycle <= instr_record['exec_end']
-            for instr_record in self.executing_instructions
-        )
-        if not branch_executing:
-            self.branch_in_progress = False
-
+        # Start execution for ready reservation stations
         newly_started = []
         for instr_record in list(self.waiting_to_execute_instructions):
-            op = instr_record['instruction']['op'].upper()
-
-            # Check if operands are ready AND no branch is busy
-            src_regs = instr_record['instruction'].get('src_regs', [])
-            operands_ready = all(reg_manager.is_ready(r)
-                            for r in src_regs)
+            fu_type = instr_record['fu_type']
+            rs_index = instr_record['rs_index']
+            rs = self.reservation_stations[fu_type][rs_index]
             
-            if operands_ready and not self.branch_in_progress == False and instr_record['exec_start'] is None:
-                fu = instr_record['fu_type']
-                cycles = self.functional_units[fu]['cycles']
+            if rs['busy'] and not rs['executing']:
+                # Check if all operands are ready - this was the issue!
+                # For most instructions, we need both operands
+                # But for some instructions like LOAD, STORE, CALL, RET, we don't need both
+                operands_ready = True
+                op = instr_record['instruction']['op'].upper()
+                
+                # For operations that need operands
+                if op not in ('CALL', 'RET'):
+                    if op == 'STORE':
+                        # STORE needs the source register
+                        operands_ready = rs['qj'] is None
+                    elif op == 'LOAD':
+                        # LOAD might need a base register
+                        if rs['qj'] is not None:
+                            operands_ready = False
+                    else:
+                        # Other operations need both operands if applicable
+                        if rs['qj'] is not None or rs['qk'] is not None:
+                            operands_ready = False
+                
+                # Start execution if operands are ready and not blocked by branch
+                if operands_ready and (not self.branch_in_progress or fu_type in ('BEQ', 'CALL_RET')):
+                    rs['executing'] = True
+                    rs['cycles_left'] = self.fu_cycles[fu_type]
+                    
+                    # Update instruction record
+                    instr_record['exec_start'] = self.current_cycle
+                    instr_record['exec_end'] = self.current_cycle + rs['cycles_left']
+                    self.executing_instructions.append(instr_record)
+                    newly_started.append(instr_record)
+                    
+                    # Execute the actual instruction
+                    self._execute_instruction(rs['instruction'])
+        
+        # Remove newly started instructions from waiting list
+        for rec in newly_started:
+            self.waiting_to_execute_instructions.remove(rec)
+        
+        # Update cycles left for executing instructions
+        for fu_type in self.reservation_stations:
+            for rs_index, rs in enumerate(self.reservation_stations[fu_type]):
+                if rs['busy'] and rs['executing'] and rs['cycles_left'] > 0:
+                    rs['cycles_left'] -= 1
+        
+        # Check for completed executions
+        finished = []
+        for instr_record in list(self.executing_instructions):
+            fu_type = instr_record['fu_type']
+            rs_index = instr_record['rs_index']
+            rs = self.reservation_stations[fu_type][rs_index]
+            
+            if rs['busy'] and rs['executing'] and rs['cycles_left'] <= 0:
+             if not self.cdb['busy']:
+                # Instruction has completed execution, put result on CDB
+                self.cdb['busy'] = True
+                self.cdb['result'] = True  # Just mark as available
+                self.cdb['dest'] = rs['dest']
+                self.cdb['source_rs'] = f"{fu_type}_{rs_index}"
+                
+                # Update instruction record
+                instr_record['write_cycle'] = self.current_cycle + 1
+                self.completed_instructions.append(instr_record)
+                finished.append(instr_record)
+                
+                # Free up reservation station
+                rs['busy'] = False
+                rs['instruction'] = None
+                rs['vj'] = None
+                rs['vk'] = None
+                rs['qj'] = None
+                rs['qk'] = None
+                rs['dest'] = None
+                rs['executing'] = False
+                rs['cycles_left'] = 0
+                
+                # Only process one completion per cycle (CDB limitation)
+                break
+        
+        # Remove finished instructions from executing list
+        for rec in finished:
+            self.executing_instructions.remove(rec)
 
-                instr_record['exec_start'] = self.current_cycle
-                instr_record['exec_end'] = self.current_cycle + cycles
-                self.executing_instructions.append(instr_record)
-                #self.waiting_to_execute_instructions.remove(instr)
-                newly_started.append(instr_record)
 
-                for rec in newly_started:
-                    self.waiting_to_execute_instructions.remove(rec)
-                #Checking for completed instructions
-
-                finished = []
-                for instr_record in list(self.executing_instructions):
-                    if self.current_cycle >= instr_record['exec_end']:
-                        instr_record['write_cycle'] = self.current_cycle + 1
-                        self.completed_instructions.append(instr_record)
-                        finished.append(instr_record)
-                        #self.executing_instructions.remove(instr_record)
-                        #self.functional_units[instr['fu_type']]['busy'] = False
-                # Free up that FU
-                fu = instr_record['fu_type']
-                self.functional_units[fu]['busy'] = False
-                self.functional_units[fu]['unit_count'] += 1
-
-                # Once done, mark destination register ready (if any)
-                dest = instr_record['instruction'].get('dest_reg')
-                if dest:
-                    reg_manager.set_ready(dest)
-
-            # for rec in finished:
-            #     self.executing_instructions.remove(rec)
-            # if not self.functional_units[fu]['busy']:
-            #     # Mark execution start
-            #     instr['exec_start'] = self.current_cycle
-            #     instr['exec_end'] = self.current_cycle + self.functional_units[fu]['cycles']
-            #     self.executing_instructions.append(instr)
-            #     self.waiting_to_execute_instructions.remove(instr)
-            #     self.functional_units[fu]['busy'] = True
-
-            # if 'dest_reg' in instr['instruction']:
-            #     reg_manager.set_ready(instr['instruction']['dest_reg'])
+    def _execute_instruction(self, instruction):
+        """Actually execute the instruction to see results"""
+        op = instruction['op'].upper()
+        
+        if op == 'LOAD':
+            dest_reg = instruction.get('dest_reg')
+            src_reg = instruction.get('src_regs', [''])[0] if instruction.get('src_regs') else None
+            offset = instruction.get('offset')
+            
+            if dest_reg and src_reg and offset is not None:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src_num = int(src_reg[1:]) if src_reg[0].lower() == 'r' else None
+                
+                if dest_num is not None and src_num is not None:
+                    backend.load(dest_num, offset, src_num)
+                    
+        elif op == 'STORE':
+            src_reg = instruction.get('src_regs', [''])[0] if instruction.get('src_regs') else None
+            dest_reg = instruction.get('dest_reg')
+            offset = instruction.get('offset')
+            
+            if src_reg and offset is not None:
+                src_num = int(src_reg[1:]) if src_reg[0].lower() == 'r' else None
+                dest_num = int(dest_reg[1:]) if dest_reg and dest_reg[0].lower() == 'r' else None
+                
+                if src_num is not None and dest_num is not None:
+                    backend.store(dest_num, offset, src_num)
+                    
+        elif op == 'ADD':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.add(dest_num, src1_num, src2_num)
+                    
+        elif op == 'SUB':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.sub(dest_num, src1_num, src2_num)
+                    
+        elif op == 'MUL':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.mul(dest_num, src1_num, src2_num)
+                    
+        elif op == 'NOR':
+            dest_reg = instruction.get('dest_reg')
+            src_regs = instruction.get('src_regs', [])
+            
+            if dest_reg and len(src_regs) >= 2:
+                dest_num = int(dest_reg[1:]) if dest_reg[0].lower() == 'r' else None
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if dest_num is not None and src1_num is not None and src2_num is not None:
+                    backend.nor(dest_num, src1_num, src2_num)
+                    
+        elif op == 'BEQ':
+            src_regs = instruction.get('src_regs', [])
+            offset = instruction.get('offset')
+            
+            if len(src_regs) >= 2 and offset is not None:
+                src1_num = int(src_regs[0][1:]) if src_regs[0][0].lower() == 'r' else None
+                src2_num = int(src_regs[1][1:]) if src_regs[1][0].lower() == 'r' else None
+                
+                if src1_num is not None and src2_num is not None:
+                    backend.beq(src1_num, src2_num, offset)
+                    
+        elif op == 'CALL':
+            label = instruction.get('offset')
+            if label:
+                backend.call(label)
+                
+        elif op == 'RET':
+            backend.ret()
 
     def _flush_incorrect_instructions(self):
         """Remove all instructions issued after the branch"""
-        # Clear functional units
+        # Clear reservation stations
         to_flush = set(self.instructions_to_flush)
 
-        for fu in self.functional_units.values():
-            if fu['busy'] and fu['current_instruction'] in to_flush:
-                fu['busy'] = False
-                fu['current_instruction'] = None
-                fu['unit_count'] +=1
+        for fu_type in self.reservation_stations:
+            for rs in self.reservation_stations[fu_type]:
+                if rs['busy'] and rs['instruction'] in to_flush:
+                    rs['busy'] = False
+                    rs['instruction'] = None
+                    rs['vj'] = None
+                    rs['vk'] = None
+                    rs['qj'] = None
+                    rs['qk'] = None
+                    rs['dest'] = None
+                    rs['executing'] = False
+                    rs['cycles_left'] = 0
         
-        # Remove from instruction_history (so timeline doesn’t show flushed instrs)
+        # Remove from instruction_history (so timeline doesn't show flushed instrs)
         self.instruction_history = [
-            i for i in self.instruction_history if i not in to_flush
+            i for i in self.instruction_history if i['instruction'] not in to_flush
         ]
+        
+        # Remove from waiting and executing lists
+        self.waiting_to_execute_instructions = [
+            i for i in self.waiting_to_execute_instructions if i['instruction'] not in to_flush
+        ]
+        self.executing_instructions = [
+            i for i in self.executing_instructions if i['instruction'] not in to_flush
+        ]
+        
         # Clear the flush set for next branch
         self.instructions_to_flush = []
 
-        # # Update instruction lists
-        # self.waiting_to_execute_instructions = [
-        #     i for i in self.waiting_to_execute_instructions 
-        #     if i not in self.instructions_to_flush
-        # ]
-        # self.instruction_history = [
-        #     i for i in self.instruction_history 
-        #     if i not in self.instructions_to_flush
-        # ]
-        
-        # # Clear flush list
-        # self.instructions_to_flush = []
-
     def _get_functional_unit_type(self, op):
-
         if op in ('LOAD', 'STORE'):
             return op
         elif op in ('ADD', 'SUB'):
@@ -192,11 +406,11 @@ class ExecutionUnit:
         elif op in ('BEQ', 'CALL', 'RET'):
             return 'BEQ' if op == 'BEQ' else 'CALL_RET'
         else:
-            return op #MUL, NOR
-    
+            return op  # MUL, NOR
+
     def get_state(self):
         """
-        Return a snapshot of the current cycle, plus what’s waiting, executing, and completed.
+        Return a snapshot of the current cycle, plus what's waiting, executing, and completed.
         Useful if you want to print cycle‐by‐cycle FU usage.
         """
         return {
@@ -204,30 +418,21 @@ class ExecutionUnit:
             'issued': [i['instruction'] for i in self.waiting_to_execute_instructions],
             'executing': [
                 (i['instruction'], f"Cycle {self.current_cycle - i['exec_start'] + 1}/"
-                                   f"{i['exec_end'] - i['exec_start']}")
+                                f"{i['exec_end'] - i['exec_start']}")
                 for i in self.executing_instructions
             ],
-            'completed': [i['instruction'] for i in self.completed_instructions]
+            'completed': [i['instruction'] for i in self.completed_instructions],
+            'reservation_stations': self.reservation_stations,
+            'cdb': self.cdb
         }
 
-    # def _format_instruction(self, instr):
-    #     """
-    #     Helper to turn an instruction‐dict into a human‐readable string for the timeline table.
-    #     """
-    #     op = instr['op'].upper()
-    #     parts = []
-    #     if op in ('LOAD', 'STORE'):
-    #         parts.append(f"{instr['dest_reg']}, {instr['offset']}({instr['src_regs'][0]})")
-    #     elif op == 'BEQ':
-    #         parts.append(f"{instr['src_regs'][0]}, {instr['src_regs'][1]}, {instr['offset']}")
-    #     elif op in ('CALL', 'RET'):
-    #         pass
-    #     else:
-    #         parts.append(f"{instr['dest_reg']}, {instr['src_regs'][0]}, {instr['src_regs'][1]}")
-    #     return f"{op} {' '.join(parts)}"
+
+    def has_pending_instructions(self):
+        """Check if there are any instructions still in progress"""
+        return len(self.waiting_to_execute_instructions) > 0 or len(self.executing_instructions) > 0
+        
     def get_instruction_timeline(self):
         timeline = []
-        print("I am inside the timeline function")
         for rec in self.instruction_history:
             op       = rec['instruction']['op'].upper()
             src_regs = rec['instruction'].get('src_regs', [])
@@ -245,7 +450,10 @@ class ExecutionUnit:
                 else:
                     inst_str = f"{op} {offset}"
             elif op in ('CALL', 'RET'):
-                inst_str = op
+                if op == 'CALL' and offset:
+                    inst_str = f"{op} {offset}"
+                else:
+                    inst_str = op
             else:
                 if len(src_regs) >= 2:
                     inst_str = f"{op} {dest_reg}, {src_regs[0]}, {src_regs[1]}"
