@@ -53,6 +53,11 @@ class ExecutionUnit:
         self.branch_in_progress = False
         self.instructions_to_flush = []
 
+            # Statistics for IPC and branch prediction
+        self.completed_instruction_count = 0
+        self.total_cycles = 0
+        self.mispredictions = 0
+        self.total_branches = 0
         # Cycle counter
         self.current_cycle = 0
 
@@ -123,17 +128,32 @@ class ExecutionUnit:
         }
         self.waiting_to_execute_instructions.append(instr_record)
         self.instruction_history.append(instr_record)
-        
-        if fu_type in ('BEQ', 'CALL_RET'):
-            self.prediction_state = "not_taken"
+        if fu_type == 'BEQ':
+            offset = instruction.get('offset')
+            # Make sure offset is a valid integer
+            if offset is None:
+                offset = 0
+            else:
+                try:
+                    offset = int(offset)
+                except (ValueError, TypeError):
+                    offset = 0
+                    
+            # Predict taken if offset is negative (backward branch, likely a loop)
+            self.prediction_state = "taken" if offset < 0 else "not_taken"
             self.branch_in_progress = True
             self.instructions_to_flush = []
-            
+            # Add all instructions after this one to the flush list
+            for instr in self.waiting_to_execute_instructions:
+                if instr['issue_cycle'] > self.current_cycle:
+                    self.instructions_to_flush.append(instr['instruction'])
+        
         return True
 
         
     def execute_process(self, reg_manager):
         self.current_cycle += 1
+        self.total_cycles +=1
         
         # First, handle CDB from previous cycle
         if self.cdb['busy']:
@@ -166,13 +186,36 @@ class ExecutionUnit:
             rs_index = instr_record['rs_index']
             rs = self.reservation_stations[fu_type][rs_index]
             
-            if fu_type in ('BEQ', 'CALL_RET') and self.current_cycle >= instr_record['exec_end']:
+            if fu_type == 'BEQ' and self.current_cycle >= instr_record['exec_end']:
                 # Get actual branch outcome
-                actual_taken = backend.program_counter()
-                # Handle misprediction
-                if actual_taken != (self.prediction_state == "taken"):
+                src_regs = instr_record['instruction'].get('src_regs', [])
+                offset = instr_record['instruction'].get('offset', 0)
+                
+                # Determine if branch was actually taken
+                actual_taken = False
+                if len(src_regs) >= 2:
+                    reg1 = int(src_regs[0][1:])  # Remove 'r' prefix
+                    reg2 = int(src_regs[1][1:])
+                    actual_taken = (backend.registers[reg1] == backend.registers[reg2])
+                
+                # Check if prediction was correct
+                predicted_taken = (self.prediction_state == "taken")
+                
+                # Update branch statistics
+                self.total_branches += 1
+                
+                if actual_taken != predicted_taken:
+                    # Misprediction occurred
+                    self.mispredictions += 1
                     self._flush_incorrect_instructions()
+                
                 self.branch_in_progress = False
+            
+            # Handle CALL_RET separately (this was missing in your code)
+            elif fu_type == 'CALL_RET' and self.current_cycle >= instr_record['exec_end']:
+                # No prediction needed for CALL/RET, just clear the branch in progress flag
+                self.branch_in_progress = False
+
 
         # Start execution for ready reservation stations
         newly_started = []
@@ -256,6 +299,8 @@ class ExecutionUnit:
                 rs['dest'] = None
                 rs['executing'] = False
                 rs['cycles_left'] = 0
+
+                self.completed_instruction_count += 1
                 
                 # Only process one completion per cycle (CDB limitation)
                 break
@@ -419,7 +464,8 @@ class ExecutionUnit:
             ],
             'completed': [i['instruction'] for i in self.completed_instructions],
             'reservation_stations': self.reservation_stations,
-            'cdb': self.cdb
+            'cdb': self.cdb,
+            'statistics': self.get_statistics()
         }
 
 
@@ -464,3 +510,26 @@ class ExecutionUnit:
                 'write_cycle': rec['write_cycle']
             })
         return timeline
+def get_ipc(self):
+    """Calculate Instructions Per Cycle"""
+    if self.total_cycles == 0:
+        return 0
+    return self.completed_instruction_count / self.total_cycles
+
+def get_branch_prediction_accuracy(self):
+    """Calculate branch prediction accuracy"""
+    if self.total_branches == 0:
+        return 1.0  # No branches, so 100% accuracy
+    correct_predictions = self.total_branches - self.mispredictions
+    return correct_predictions / self.total_branches
+
+def get_statistics(self):
+    """Return all performance statistics"""
+    return {
+        'ipc': self.get_ipc(),
+        'total_instructions': self.completed_instruction_count,
+        'total_cycles': self.total_cycles,
+        'branch_accuracy': self.get_branch_prediction_accuracy(),
+        'total_branches': self.total_branches,
+        'mispredictions': self.mispredictions
+    }

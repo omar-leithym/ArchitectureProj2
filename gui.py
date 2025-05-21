@@ -215,6 +215,26 @@ cdb_status = StringVar(value="Idle")
 cdb_status_label = Label(cdb_frame, textvariable=cdb_status, font=("Helvetica", 10))
 cdb_status_label.pack(side="left")
 
+
+# Add a new tab for statistics
+stats_tab = Frame(notebook)
+notebook.add(stats_tab, text="Statistics")
+
+# Create a frame for the statistics
+stats_frame = Frame(stats_tab)
+stats_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+# Create labels for statistics
+ipc_label = Label(stats_frame, text="IPC: ", font=("Helvetica", 12, "bold"))
+ipc_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+ipc_value = Label(stats_frame, text="0", font=("Helvetica", 12))
+ipc_value.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+branch_acc_label = Label(stats_frame, text="Branch Prediction Accuracy: ", font=("Helvetica", 12, "bold"))
+branch_acc_label.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+branch_acc_value = Label(stats_frame, text="0%", font=("Helvetica", 12))
+branch_acc_value.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+
 def update_rs_table(rs_data):
 
     for item in rs_table.get_children():
@@ -305,6 +325,14 @@ def simulate():
         cdb_status.set(f"Busy - Source: {state_data['cdb']['source_rs']}, Dest: {state_data['cdb']['dest']}")
     else:
         cdb_status.set("Idle")
+
+    # Update statistics display
+    if 'statistics' in state_data:
+        stats = state_data['statistics']
+        ipc_value.config(text=f"{stats['ipc']:.2f}")
+        branch_acc = stats['branch_accuracy'] * 100
+        branch_acc_value.config(text=f"{branch_acc:.1f}%")
+
 
 
 chooseInstructionsButton = Button(root, text="Choose Instructions File", font=("Helvetica", 10), command=load_instructions_file, bg="#666666", fg="white")
