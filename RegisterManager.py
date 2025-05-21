@@ -1,7 +1,7 @@
 class RegisterManager:
     def __init__(self):
         self.registers = {
-            'R0': {'value': 0, 'status': 'READY'},   #R0 is always 0
+            'R0': {'value': 0, 'status': 'READY'},
             'R1': {'value': None, 'status': 'READY'},
             'R2': {'value': None, 'status': 'READY'},
             'R3': {'value': None, 'status': 'READY'},

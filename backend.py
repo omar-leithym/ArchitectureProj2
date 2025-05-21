@@ -2,8 +2,8 @@ import ExecutionUnit
 from RegisterManager import RegisterManager
 
 # Global Variables
-registers = [0] * 8  # Only 8 registers (0-7)
-pc_value = 0  # Renamed from program_counter
+registers = [0] * 8 
+pc_value = 0
 memory = {}
 labels = {}
 executable_instructions = []
@@ -13,7 +13,7 @@ execution_unit = ExecutionUnit.ExecutionUnit()
 reg_manager = RegisterManager()
 
 def program_counter():
-    global pc_value  # Changed to reference pc_value
+    global pc_value
     return bool(pc_value)
 
 def load_memory_from_text(memory_text):
@@ -68,7 +68,7 @@ def parse_register(reg):
     reg = reg.strip()
     if reg.lower().startswith('r') and reg[1:].isdigit():
         reg_num = int(reg[1:])
-        if 0 <= reg_num < 8:  # Only 8 registers (0-7)
+        if 0 <= reg_num < 8:
             return reg_num
     output_to_gui_global(f"Error: Invalid register {reg}")
     return None
@@ -101,6 +101,7 @@ def instruction_splitting(line):
             offset_str, base_register = parts[2].split('(')
             offset = parse_immediate(offset_str)
             reg2 = parse_register(base_register[:-1])
+
             # Check if offset is within the valid range (-16 to 15)
             if offset < -16 or offset > 15:
                 output_to_gui_global(f"Error: Offset {offset} is out of range (-16 to 15)")
@@ -110,9 +111,9 @@ def instruction_splitting(line):
             return None, None, None, None, None, None
         
         if opcode == 'STORE':
-            return opcode, reg1, reg2, None, offset, None  # Changed: rA, rB, offset
-        else:  # LOAD
-            return opcode, reg1, reg2, None, offset, None  # rA, rB, offset
+            return opcode, reg1, reg2, None, offset, None 
+        else: 
+            return opcode, reg1, reg2, None, offset, None 
 
     # Handling BEQ Instruction
     elif opcode == 'BEQ':
@@ -122,7 +123,7 @@ def instruction_splitting(line):
         rA = parse_register(parts[1])
         rB = parse_register(parts[2])
         offset = parse_immediate(parts[3])
-        return opcode, None, rA, rB, offset, None  # rA, rB, offset
+        return opcode, None, rA, rB, offset, None
 
     # Handling CALL Instruction
     elif opcode == 'CALL':
@@ -130,7 +131,7 @@ def instruction_splitting(line):
             output_to_gui_global(f"Error: CALL instruction missing operands. line='{line}'")
             return None, None, None, None, None, None
         label = parts[1]
-        return opcode, None, None, None, label, None  # label
+        return opcode, None, None, None, label, None 
 
     # Handling RET Instruction
     elif opcode == 'RET':
@@ -144,7 +145,7 @@ def instruction_splitting(line):
         rA = parse_register(parts[1])
         rB = parse_register(parts[2])
         rC = parse_register(parts[3])
-        return opcode, rA, rB, rC, None, None  # rA, rB, rC
+        return opcode, rA, rB, rC, None, None 
 
     else:
         output_to_gui_global(f"Error: Unrecognized instruction format. line='{line}'")
@@ -156,7 +157,7 @@ def load(rA, offset, rB):
         output_to_gui_global(f"Error: LOAD instruction missing operands rA={rA}, rB={rB}, offset={offset}")
         return
     
-    address = (registers[rB] + offset) & 0xFFFF  # 16-bit address
+    address = (registers[rB] + offset) & 0xFFFF
     registers[rA] = load_word(address)
     output_to_gui_global(f"LOAD: r{rA} = Memory[r{rB}({registers[rB]}) + {offset}] = {registers[rA]}")
 
@@ -165,7 +166,7 @@ def store(rA, offset, rB):
         output_to_gui_global(f"Error: STORE instruction missing operands rA={rA}, rB={rB}, offset={offset}")
         return
     
-    address = (registers[rB] + offset) & 0xFFFF  # 16-bit address
+    address = (registers[rB] + offset) & 0xFFFF 
     store_word(address, registers[rA])
     output_to_gui_global(f"STORE: Memory[r{rB}({registers[rB]}) + {offset}] = r{rA}({registers[rA]})")
 
@@ -213,7 +214,7 @@ def add(rA, rB, rC):
         output_to_gui_global(f"Error: ADD instruction missing operands rA={rA}, rB={rB}, rC={rC}")
         return
     
-    registers[rA] = (registers[rB] + registers[rC]) & 0xFFFF  # 16-bit result
+    registers[rA] = (registers[rB] + registers[rC]) & 0xFFFF
     output_to_gui_global(f"ADD: r{rA} = r{rB}({registers[rB]}) + r{rC}({registers[rC]}) = {registers[rA]}")
 
 def sub(rA, rB, rC):
@@ -221,7 +222,7 @@ def sub(rA, rB, rC):
         output_to_gui_global(f"Error: SUB instruction missing operands rA={rA}, rB={rB}, rC={rC}")
         return
     
-    registers[rA] = (registers[rB] - registers[rC]) & 0xFFFF  # 16-bit result
+    registers[rA] = (registers[rB] - registers[rC]) & 0xFFFF 
     output_to_gui_global(f"SUB: r{rA} = r{rB}({registers[rB]}) - r{rC}({registers[rC]}) = {registers[rA]}")
 
 def nor(rA, rB, rC):
@@ -229,7 +230,7 @@ def nor(rA, rB, rC):
         output_to_gui_global(f"Error: NOR instruction missing operands rA={rA}, rB={rB}, rC={rC}")
         return
     
-    registers[rA] = ~(registers[rB] | registers[rC]) & 0xFFFF  # 16-bit result
+    registers[rA] = ~(registers[rB] | registers[rC]) & 0xFFFF 
     output_to_gui_global(f"NOR: r{rA} = ~(r{rB}({registers[rB]}) | r{rC}({registers[rC]})) = {registers[rA]}")
 
 def mul(rA, rB, rC):
@@ -237,7 +238,7 @@ def mul(rA, rB, rC):
         output_to_gui_global(f"Error: MUL instruction missing operands rA={rA}, rB={rB}, rC={rC}")
         return
     
-    registers[rA] = (registers[rB] * registers[rC]) & 0xFFFF  # 16-bit result
+    registers[rA] = (registers[rB] * registers[rC]) & 0xFFFF 
     output_to_gui_global(f"MUL: r{rA} = r{rB}({registers[rB]}) * r{rC}({registers[rC]}) = {registers[rA]}")
 
 # Dictionary of instructions
@@ -317,8 +318,8 @@ def main(instructions_text, memory_text, output_to_gui, starting_pc, fu_config):
         if opcode == 'STORE':
             instruction_record = { 
                 'op': opcode,
-                'dest_reg': f"r{rA}" if rA is not None else None,  # This is the value to store
-                'src_regs': [f"r{rB}"] if rB is not None else [],  # This is the base register
+                'dest_reg': f"r{rA}" if rA is not None else None,
+                'src_regs': [f"r{rB}"] if rB is not None else [],
                 'offset': imm_or_label if imm_or_label is not None else None
             }
         elif opcode == 'CALL':

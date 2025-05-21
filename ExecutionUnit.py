@@ -3,7 +3,6 @@ from RegisterManager import RegisterManager
 
 class ExecutionUnit:
     def __init__(self, fu_config=None):
-        # Default configuration if none provided
         default_config = {
             'LOAD': {'cycles': 6, 'unit_count': 2},
             'STORE': {'cycles': 6, 'unit_count': 2},
@@ -14,10 +13,9 @@ class ExecutionUnit:
             'CALL_RET': {'cycles': 1, 'unit_count': 1}
         }
         
-        # Use provided config or default
+
         config = fu_config if fu_config else default_config
         
-        # Create reservation stations for each functional unit type
         self.reservation_stations = {}
         for fu_type, settings in config.items():
             self.reservation_stations[fu_type] = [
@@ -34,7 +32,6 @@ class ExecutionUnit:
                 } for _ in range(settings['unit_count'])
             ]
             
-        # Store cycle information for each FU type
         self.fu_cycles = {fu_type: settings['cycles'] for fu_type, settings in config.items()}
         
         # Common Data Bus for result broadcasting
@@ -67,7 +64,6 @@ class ExecutionUnit:
         if self.branch_in_progress and fu_type not in ('BEQ', 'CALL_RET'):
             return False
             
-        # Check if there's an available reservation station for this type
         rs_available = False
         rs_index = -1
         
@@ -78,8 +74,8 @@ class ExecutionUnit:
                 break
                 
         if not rs_available:
-            return False  # All reservation stations are busy
-            
+            return False 
+        
         # Get reservation station
         rs = self.reservation_stations[fu_type][rs_index]
         
